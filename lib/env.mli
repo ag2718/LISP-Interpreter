@@ -8,7 +8,7 @@ and value =
   | Val_nil
   | Val_bool of bool
   | Val_int of int
-  | Val_prim of (value list -> value) (* primitive functions *)
+  | Val_prim of (value list -> value)
   | Val_lambda of env * id list * Ast.expr list
 
 val empty : env

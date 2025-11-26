@@ -1,4 +1,3 @@
-open Base
 open Core
 
 type id = string
@@ -12,140 +11,116 @@ and value =
   | Val_nil
   | Val_bool of bool
   | Val_int of int
-  | Val_prim of (value list -> value) (* primitive functions *)
+  | Val_prim of (value list -> value)
   | Val_lambda of env * id list * Ast.expr list
 
-let empty = { parent = None; bindings = Map.empty (module String) }
+let empty : env = { parent = None; bindings = Map.empty (module String) }
 
-let is_builtin = function
-  | "+" -> true
-  | "-" -> true
-  | "/" -> true
-  | "*" -> true
-  | "MAX" -> true
-  | "ABS" -> true
-  | "=" -> true
-  | "!" -> true
-  | ">" -> true
-  | ">=" -> true
-  | "<" -> true
-  | "<=" -> true
-  | _ -> false
+let to_string = function
+  | Val_nil -> "nil"
+  | Val_bool b -> if b then "true" else "false"
+  | Val_int i -> Int.to_string i
+  | Val_prim _ -> "<primitive>"
+  | Val_lambda _ -> "<lambda>"
 
-let builtin_funcs func =
-  let rec extract_ints acc = function
-    | [] -> List.rev acc
-    | hd :: tl -> (
-        match hd with
-        | Val_int i -> extract_ints (i :: acc) tl
-        | _ -> failwith "non-int value where int value expected!")
+let builtin_map =
+  let expect_int : value -> int = function
+    | Val_int i -> i
+    | v -> failwithf "expected int, got %s" (to_string v) ()
   in
-  let rec extract_bools acc = function
-    | [] -> List.rev acc
-    | hd :: tl -> (
-        match hd with
-        | Val_bool b -> extract_bools (b :: acc) tl
-        | _ -> failwith "non-bool value where bool value expected!")
-  in
-  match func with
-  | "+" ->
-      Val_prim
-        (fun args ->
-          Val_int (List.fold (extract_ints [] args) ~init:0 ~f:( + )))
-  | "*" ->
-      Val_prim
-        (fun args ->
-          Val_int (List.fold (extract_ints [] args) ~init:1 ~f:( * )))
-  | "-" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 1 -> Val_int (-List.hd_exn int_args)
-          | 2 -> Val_int (List.nth_exn int_args 0 - List.nth_exn int_args 1)
-          | _ -> failwith "invalid number of arguments to (-)")
-  | "/" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 2 -> Val_int (List.nth_exn int_args 0 / List.nth_exn int_args 1)
-          | _ -> failwith "invalid number of arguments to (/)")
-  | "MAX" ->
-      Val_prim
-        (fun args ->
-          Val_int
-            (List.fold (extract_ints [] args) ~init:0 ~f:(fun acc x ->
-                 if acc > x then acc else x)))
-  | "ABS" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 1 -> Val_int (int_args |> List.hd_exn |> abs)
-          | _ -> failwith "invalid number of arguments to ABS")
-  | "=" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 2 -> Val_bool (List.nth_exn int_args 0 = List.nth_exn int_args 1)
-          | _ -> failwith "invalid number of arguments to (=)")
-  | "!" ->
-      Val_prim
-        (fun args ->
-          let bool_args = extract_bools [] args in
-          match List.length bool_args with
-          | 1 -> Val_bool (not (List.hd_exn bool_args))
-          | _ -> failwith "invalid number of arguments to (!)")
-  | ">" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 2 -> Val_bool (List.nth_exn int_args 0 > List.nth_exn int_args 1)
-          | _ -> failwith "invalid number of arguments to (>)")
-  | ">=" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 2 -> Val_bool (List.nth_exn int_args 0 >= List.nth_exn int_args 1)
-          | _ -> failwith "invalid number of arguments to (>=)")
-  | "<" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 2 -> Val_bool (List.nth_exn int_args 0 < List.nth_exn int_args 1)
-          | _ -> failwith "invalid number of arguments to (<)")
-  | "<=" ->
-      Val_prim
-        (fun args ->
-          let int_args = extract_ints [] args in
-          match List.length int_args with
-          | 2 -> Val_bool (List.nth_exn int_args 0 <= List.nth_exn int_args 1)
-          | _ -> failwith "invalid number of arguments to (<=)")
-  | _ -> assert false
 
-let rec eval_expr env = function
+  let expect_bool : value -> bool = function
+    | Val_bool b -> b
+    | v -> failwithf "expected bool, got %s" (to_string v) ()
+  in
+  Map.of_alist_exn
+    (module String)
+    [
+      ( "+",
+        fun args ->
+          Val_int (List.fold args ~init:0 ~f:(fun acc v -> acc + expect_int v))
+      );
+      ( "*",
+        fun args ->
+          Val_int (List.fold args ~init:1 ~f:(fun acc v -> acc * expect_int v))
+      );
+      ( "-",
+        function
+        | [ x ] -> Val_int (-expect_int x)
+        | [ x; y ] -> Val_int (expect_int x - expect_int y)
+        | args ->
+            failwithf "(-) expects 1 or 2 arguments, got %d" (List.length args)
+              () );
+      ( "/",
+        function
+        | [ x; y ] -> Val_int (expect_int x / expect_int y)
+        | args ->
+            failwithf "(/) expects 2 arguments, got %d" (List.length args) () );
+      ( "MAX",
+        function
+        | [] -> failwith "MAX expects at least 1 argument"
+        | args ->
+            Val_int
+              (List.fold args ~init:Int.min_value ~f:(fun acc v ->
+                   Int.max acc (expect_int v))) );
+      ( "ABS",
+        function
+        | [ x ] -> Val_int (Int.abs (expect_int x))
+        | args ->
+            failwithf "ABS expects 1 argument, got %d" (List.length args) () );
+      ( "=",
+        function
+        | [ x; y ] -> Val_bool (expect_int x = expect_int y)
+        | args ->
+            failwithf "(=) expects 2 arguments, got %d" (List.length args) () );
+      ( "!",
+        function
+        | [ x ] -> Val_bool (not (expect_bool x))
+        | args ->
+            failwithf "(!) expects 1 argument, got %d" (List.length args) () );
+      ( ">",
+        function
+        | [ x; y ] -> Val_bool (expect_int x > expect_int y)
+        | args ->
+            failwithf "(>) expects 2 arguments, got %d" (List.length args) () );
+      ( ">=",
+        function
+        | [ x; y ] -> Val_bool (expect_int x >= expect_int y)
+        | args ->
+            failwithf "(>=) expects 2 arguments, got %d" (List.length args) ()
+      );
+      ( "<",
+        function
+        | [ x; y ] -> Val_bool (expect_int x < expect_int y)
+        | args ->
+            failwithf "(<) expects 2 arguments, got %d" (List.length args) () );
+      ( "<=",
+        function
+        | [ x; y ] -> Val_bool (expect_int x <= expect_int y)
+        | args ->
+            failwithf "(<=) expects 2 arguments, got %d" (List.length args) ()
+      );
+    ]
+
+let rec eval_expr env expr =
+  match expr with
   | Ast.Expr_nil -> (Val_nil, env)
   | Ast.Expr_bool b -> (Val_bool b, env)
   | Ast.Expr_int i -> (Val_int i, env)
   | Ast.Expr_id id ->
-      if is_builtin id then (builtin_funcs id, env)
-      else
-        let rec lookup_id env id =
-          match Map.find env.bindings id with
-          | Some v -> v
-          | None -> (
-              match env.parent with
-              | Some parent_env -> lookup_id parent_env id
-              | None ->
-                  failwith (Printf.sprintf "identifier %s not found in env!" id)
-              )
-        in
-        (lookup_id env id, env)
+      let is_builtin id = Map.mem builtin_map id in
+      let get_builtin id = Val_prim (Map.find_exn builtin_map id) in
+
+      let rec lookup_id env id =
+        match Map.find env.bindings id with
+        | Some v -> v
+        | None -> (
+            match env.parent with
+            | Some parent_env -> lookup_id parent_env id
+            | None -> failwithf "identifier '%s' not found in environment" id ()
+            )
+      in
+      if is_builtin id then (get_builtin id, env) else (lookup_id env id, env)
   | Ast.Expr_def (id, expr) -> (
       match expr with
       | Expr_lambda (args, exprs) ->
@@ -175,15 +150,12 @@ let rec eval_expr env = function
           ~f:(fun (_, e) expr -> eval_expr e expr)
       in
       (result, env)
-  | Ast.Expr_if (cond, then_cl, else_cl) ->
-      let cond_val = eval_expr env cond in
-      let eval_cl =
-        match cond_val with
-        | Val_bool true, _ -> then_cl
-        | Val_bool false, _ -> else_cl
-        | _ -> failwith "if condition does not evaluate to boolean!"
-      in
-      eval_expr env eval_cl
+  | Ast.Expr_if (cond, then_cl, else_cl) -> (
+      match eval_expr env cond with
+      | Val_bool true, _ -> eval_expr env then_cl
+      | Val_bool false, _ -> eval_expr env else_cl
+      | other, _ ->
+          failwithf "if condition must be bool, got: %s" (to_string other) ())
   | Ast.Expr_lambda (args, exprs) -> (Val_lambda (env, args, exprs), env)
   | Ast.Expr_apply (func, args) -> (
       let func_val = fst (eval_expr env func) in
@@ -202,11 +174,4 @@ let rec eval_expr env = function
               ~f:(fun (_, env_acc) expr -> eval_expr env_acc expr)
           in
           (res, env)
-      | _ -> assert false)
-
-let to_string = function
-  | Val_nil -> "nil"
-  | Val_bool b -> if b then "true" else "false"
-  | Val_int i -> Int.to_string i
-  | Val_prim _ -> "<primitive>"
-  | Val_lambda _ -> "<lambda>"
+      | v -> failwithf "cannot apply non-function: %s" (to_string v) ())

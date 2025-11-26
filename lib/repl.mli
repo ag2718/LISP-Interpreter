@@ -1,3 +1,5 @@
+(** repl.mli *)
+
 open Core
 
 val repl_loop :
