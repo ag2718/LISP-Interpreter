@@ -1,0 +1,4 @@
+(library
+ (name builtins)
+ (libraries core lisp_interpreter))
+

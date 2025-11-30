@@ -1,6 +1,6 @@
 (test
  (name test_lisp_interpreter)
- (libraries core lisp_interpreter)
+ (libraries core lisp_interpreter builtins)
  (deps
   (glob_files examples/*.scm)
   (glob_files examples/*.out)))

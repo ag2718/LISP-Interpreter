@@ -1,4 +1,4 @@
 (executable
  (public_name lisp_interpreter)
  (name main)
- (libraries lisp_interpreter core))
+ (libraries lisp_interpreter builtins core))

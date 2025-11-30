@@ -1,126 +1,35 @@
 open Core
+open Value
 
-type id = string
+type id = Value.id
+type env = Value.env
 
-type env = {
-  parent : env option;
-  mutable bindings : (string, value, String.comparator_witness) Map.t;
-}
-
-and value =
+type value = Value.value =
   | Val_nil
   | Val_bool of bool
   | Val_int of int
   | Val_prim of (value list -> value)
   | Val_lambda of env * id list * Ast.expr list
 
-let empty : env = { parent = None; bindings = Map.empty (module String) }
+let empty = Value.empty_env
+let to_string = Value.to_string
 
-let to_string = function
-  | Val_nil -> "nil"
-  | Val_bool b -> if b then "true" else "false"
-  | Val_int i -> Int.to_string i
-  | Val_prim _ -> "<primitive>"
-  | Val_lambda _ -> "<lambda>"
+let rec lookup_id (env : env) (id : string) : value =
+  match Map.find env.bindings id with
+  | Some v -> v
+  | None -> (
+      match env.parent with
+      | Some parent_env -> lookup_id parent_env id
+      | None -> failwithf "identifier '%s' not found in environment" id ())
 
-let builtin_map =
-  let expect_int : value -> int = function
-    | Val_int i -> i
-    | v -> failwithf "expected int, got %s" (to_string v) ()
-  in
-
-  let expect_bool : value -> bool = function
-    | Val_bool b -> b
-    | v -> failwithf "expected bool, got %s" (to_string v) ()
-  in
-  Map.of_alist_exn
-    (module String)
-    [
-      ( "+",
-        fun args ->
-          Val_int (List.fold args ~init:0 ~f:(fun acc v -> acc + expect_int v))
-      );
-      ( "*",
-        fun args ->
-          Val_int (List.fold args ~init:1 ~f:(fun acc v -> acc * expect_int v))
-      );
-      ( "-",
-        function
-        | [ x ] -> Val_int (-expect_int x)
-        | [ x; y ] -> Val_int (expect_int x - expect_int y)
-        | args ->
-            failwithf "(-) expects 1 or 2 arguments, got %d" (List.length args)
-              () );
-      ( "/",
-        function
-        | [ x; y ] -> Val_int (expect_int x / expect_int y)
-        | args ->
-            failwithf "(/) expects 2 arguments, got %d" (List.length args) () );
-      ( "MAX",
-        function
-        | [] -> failwith "MAX expects at least 1 argument"
-        | args ->
-            Val_int
-              (List.fold args ~init:Int.min_value ~f:(fun acc v ->
-                   Int.max acc (expect_int v))) );
-      ( "ABS",
-        function
-        | [ x ] -> Val_int (Int.abs (expect_int x))
-        | args ->
-            failwithf "ABS expects 1 argument, got %d" (List.length args) () );
-      ( "=",
-        function
-        | [ x; y ] -> Val_bool (expect_int x = expect_int y)
-        | args ->
-            failwithf "(=) expects 2 arguments, got %d" (List.length args) () );
-      ( "!",
-        function
-        | [ x ] -> Val_bool (not (expect_bool x))
-        | args ->
-            failwithf "(!) expects 1 argument, got %d" (List.length args) () );
-      ( ">",
-        function
-        | [ x; y ] -> Val_bool (expect_int x > expect_int y)
-        | args ->
-            failwithf "(>) expects 2 arguments, got %d" (List.length args) () );
-      ( ">=",
-        function
-        | [ x; y ] -> Val_bool (expect_int x >= expect_int y)
-        | args ->
-            failwithf "(>=) expects 2 arguments, got %d" (List.length args) ()
-      );
-      ( "<",
-        function
-        | [ x; y ] -> Val_bool (expect_int x < expect_int y)
-        | args ->
-            failwithf "(<) expects 2 arguments, got %d" (List.length args) () );
-      ( "<=",
-        function
-        | [ x; y ] -> Val_bool (expect_int x <= expect_int y)
-        | args ->
-            failwithf "(<=) expects 2 arguments, got %d" (List.length args) ()
-      );
-    ]
-
-let rec eval_expr env expr =
+let rec eval_expr (env : env) (expr : Ast.expr) : value * env =
   match expr with
   | Ast.Expr_nil -> (Val_nil, env)
   | Ast.Expr_bool b -> (Val_bool b, env)
   | Ast.Expr_int i -> (Val_int i, env)
   | Ast.Expr_id id ->
-      let is_builtin id = Map.mem builtin_map id in
-      let get_builtin id = Val_prim (Map.find_exn builtin_map id) in
-
-      let rec lookup_id env id =
-        match Map.find env.bindings id with
-        | Some v -> v
-        | None -> (
-            match env.parent with
-            | Some parent_env -> lookup_id parent_env id
-            | None -> failwithf "identifier '%s' not found in environment" id ()
-            )
-      in
-      if is_builtin id then (get_builtin id, env) else (lookup_id env id, env)
+      if Registry.mem id then (Registry.to_prim id, env)
+      else (lookup_id env id, env)
   | Ast.Expr_def (id, expr) -> (
       match expr with
       | Expr_lambda (args, exprs) ->

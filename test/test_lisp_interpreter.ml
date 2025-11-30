@@ -1,6 +1,7 @@
 open Core
 open Lisp_interpreter
 
+let () = Builtins.init ()
 let examples_dir = "examples"
 
 let get_scm_files () =

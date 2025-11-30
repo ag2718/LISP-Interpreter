@@ -1,10 +1,9 @@
 (** env.mli *)
 
-type id = string
+type id = Value.id
+type env = Value.env
 
-type env
-
-and value =
+type value = Value.value =
   | Val_nil
   | Val_bool of bool
   | Val_int of int
